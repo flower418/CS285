@@ -37,31 +37,51 @@ class BasePolicy(nn.Module, metaclass=abc.ABCMeta):
 class MSEPolicy(BasePolicy):
     """Predicts action chunks with an MSE loss."""
 
-    ### TODO: IMPLEMENT MSEPolicy HERE ###
+    ### IMPLEMENT MSEPolicy HERE ###
     def __init__(
         self,
         state_dim: int,
         action_dim: int,
         chunk_size: int,
-        hidden_dims: tuple[int, ...] = (128, 128),
+        hidden_dims: tuple[int, ...] = (128, 128), # 表示隐藏层的维度
     ) -> None:
         super().__init__(state_dim, action_dim, chunk_size)
+
+        layers = []
+
+        in_dim = state_dim # 观察到的输入是 5 个 dim
+        out_dim = action_dim * chunk_size # 一下输出一个 chunk 的所有动作
+
+        # 架构：FC + BN + ReLU
+        for hidden_dim in hidden_dims:
+            layers.append(nn.Linear(in_dim, hidden_dim))
+            layers.append(nn.BatchNorm1d(hidden_dim))
+            layers.append(torch.relu())
+            in_dim = hidden_dim
+
+        # 最后一层直接 FC
+        layers.append(nn.Linear(in_dim, out_dim))
+
+        self.net = nn.Sequential(*layers) # 新写法
+
 
     def compute_loss(
         self,
         state: torch.Tensor,
         action_chunk: torch.Tensor,
     ) -> torch.Tensor:
-        raise NotImplementedError
+        pred = self.sample_actions(state)
+        return nn.functional.mse_loss(action_chunk, pred)
 
+    # 根据输入的 state 生成一段 action chunk
     def sample_actions(
         self,
-        state: torch.Tensor,
+        state: torch.Tensor, # (5,)，表示当前输入的维度，默认为 5 维
         *,
         num_steps: int = 10,
     ) -> torch.Tensor:
-        raise NotImplementedError
-
+        pred = self.net(state) # (action_chunk, 2)
+        return pred.reshape(-1, self.chunk_size, self.action_dim) # (B, chunk, action_dim)
 
 class FlowMatchingPolicy(BasePolicy):
     """Predicts action chunks with a flow matching loss."""
