@@ -20,7 +20,7 @@ from hw1_imitation.data import (
     load_pusht_zarr,
 )
 from hw1_imitation.model import build_policy, PolicyType
-from hw1_imitation.evaluation import Logger
+from hw1_imitation.evaluation import Logger, evaluate_policy
 
 LOGDIR_PREFIX = "exp"
 
@@ -127,7 +127,69 @@ def run_training(config: TrainConfig) -> None:
     )
     logger = Logger(log_dir)
 
-    ### TODO: PUT YOUR MAIN TRAINING LOOP HERE ###
+    ### PUT YOUR MAIN TRAINING LOOP HERE ###
+    # 准备 optimizer
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=config.lr,
+        weight_decay=config.weight_decay,
+    )
+
+    step = 0
+
+    for epoch in config.num_epochs:
+        for state, action_chunk in loader:
+            model.train() # 进入训练模式
+
+            state = state.to(device)
+            action_chunk = action_chunk.to(device)
+
+            # 计算 loss
+            loss = model.compute_loss(state, action_chunk)
+
+            # 反向传播
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            # 更新下一步
+            step += 1
+
+            if step % config.log_interval == 0:
+                logger.log(
+                    {
+                        "train/loss": float(loss.item()),
+                        "train/epoch": epoch
+                    },
+                    step=step
+                )
+
+            if step % config.eval_interval == 0:
+                evaluate_policy(
+                    model=model,
+                    normalizer=normalizer,
+                    device=device,
+                    chunk_size=config.chunk_size,
+                    video_size=config.video_size,
+                    num_video_episodes=config.num_video_episodes,
+                    flow_num_steps=config.flow_num_steps,
+                    step=step,
+                    logger=logger
+                )
+
+    # 最后补一个 eval
+    if step > 0 and step % config.eval_interval != 0:
+        evaluate_policy(
+            model=model,
+            normalizer=normalizer,
+            device=device,
+            chunk_size=config.chunk_size,
+            video_size=config.video_size,
+            num_video_episodes=config.num_video_episodes,
+            flow_num_steps=config.flow_num_steps,
+            step=step,
+            logger=logger
+        )
 
     logger.dump_for_grading()
 
